@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion7
 
 const (
 	PodService_CreatePod_FullMethodName = "/pod.PodService/CreatePod"
+	PodService_ExecInPod_FullMethodName = "/pod.PodService/ExecInPod"
 )
 
 // PodServiceClient is the client API for PodService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PodServiceClient interface {
 	CreatePod(ctx context.Context, in *CreatePodRequest, opts ...grpc.CallOption) (*CreatePodResponse, error)
+	ExecInPod(ctx context.Context, in *ExecInPodRequest, opts ...grpc.CallOption) (PodService_ExecInPodClient, error)
 }
 
 type podServiceClient struct {
@@ -46,11 +48,44 @@ func (c *podServiceClient) CreatePod(ctx context.Context, in *CreatePodRequest, 
 	return out, nil
 }
 
+func (c *podServiceClient) ExecInPod(ctx context.Context, in *ExecInPodRequest, opts ...grpc.CallOption) (PodService_ExecInPodClient, error) {
+	stream, err := c.cc.NewStream(ctx, &PodService_ServiceDesc.Streams[0], PodService_ExecInPod_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &podServiceExecInPodClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type PodService_ExecInPodClient interface {
+	Recv() (*ExecInPodResponse, error)
+	grpc.ClientStream
+}
+
+type podServiceExecInPodClient struct {
+	grpc.ClientStream
+}
+
+func (x *podServiceExecInPodClient) Recv() (*ExecInPodResponse, error) {
+	m := new(ExecInPodResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // PodServiceServer is the server API for PodService service.
 // All implementations must embed UnimplementedPodServiceServer
 // for forward compatibility
 type PodServiceServer interface {
 	CreatePod(context.Context, *CreatePodRequest) (*CreatePodResponse, error)
+	ExecInPod(*ExecInPodRequest, PodService_ExecInPodServer) error
 	mustEmbedUnimplementedPodServiceServer()
 }
 
@@ -60,6 +95,9 @@ type UnimplementedPodServiceServer struct {
 
 func (UnimplementedPodServiceServer) CreatePod(context.Context, *CreatePodRequest) (*CreatePodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreatePod not implemented")
+}
+func (UnimplementedPodServiceServer) ExecInPod(*ExecInPodRequest, PodService_ExecInPodServer) error {
+	return status.Errorf(codes.Unimplemented, "method ExecInPod not implemented")
 }
 func (UnimplementedPodServiceServer) mustEmbedUnimplementedPodServiceServer() {}
 
@@ -92,6 +130,27 @@ func _PodService_CreatePod_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PodService_ExecInPod_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ExecInPodRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(PodServiceServer).ExecInPod(m, &podServiceExecInPodServer{stream})
+}
+
+type PodService_ExecInPodServer interface {
+	Send(*ExecInPodResponse) error
+	grpc.ServerStream
+}
+
+type podServiceExecInPodServer struct {
+	grpc.ServerStream
+}
+
+func (x *podServiceExecInPodServer) Send(m *ExecInPodResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // PodService_ServiceDesc is the grpc.ServiceDesc for PodService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -104,6 +163,12 @@ var PodService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PodService_CreatePod_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ExecInPod",
+			Handler:       _PodService_ExecInPod_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "pod.proto",
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -330,6 +331,58 @@ func (s *GenericPodService) CreatePod(ctx context.Context, in *pb.CreatePodReque
 		Ok:          true,
 		ContainerId: containerId,
 	}, nil
+}
+
+const (
+	execInPodContainerTimeout = 60 * time.Second
+)
+
+func (s *GenericPodService) ExecInPod(in *pb.ExecInPodRequest, stream pb.PodService_ExecInPodServer) error {
+	ctx := stream.Context()
+	authInfo, _ := auth.AuthInfoFromContext(ctx)
+
+	instance, err := s.getOrCreatePodInstance(in.StubId)
+	if err != nil {
+		return err
+	}
+
+	if authInfo.Workspace.ExternalId != instance.Workspace.ExternalId {
+		return errors.New("unauthorized")
+	}
+
+	// container, err := instance.WaitForContainer(ctx, execInPodContainerTimeout)
+	// if err != nil {
+	// 	return err
+	// }
+
+	hostname, err := s.containerRepo.GetWorkerAddress(ctx, in.ContainerId)
+	if err != nil {
+		return err
+	}
+
+	conn, err := network.ConnectToHost(ctx, hostname, time.Second*30, s.tailscale, s.config.Tailscale)
+	if err != nil {
+		return err
+	}
+
+	client, err := common.NewRunCClient(hostname, authInfo.Token.Key, conn)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Exec(in.ContainerId, strings.Join(in.Command, " "))
+	if err != nil {
+		return err
+	}
+
+	stream.Send(&pb.ExecInPodResponse{
+		Output:   "done",
+		Done:     true,
+		Success:  true,
+		ExitCode: 1,
+	})
+
+	return nil
 }
 
 func (s *GenericPodService) generateContainerId(stubId string) string {

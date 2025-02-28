@@ -1,8 +1,10 @@
+import io
 import os
+import threading
 import urllib.parse
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 from .. import terminal
 from ..abstractions.base.runner import (
@@ -26,6 +28,8 @@ from ..clients.gateway import (
 from ..clients.pod import (
     CreatePodRequest,
     CreatePodResponse,
+    ExecInPodRequest,
+    ExecInPodResponse,
     PodServiceStub,
 )
 from ..clients.shell import CreateShellRequest
@@ -37,25 +41,46 @@ from .base import BaseAbstraction
 from .shell import SSHShell
 
 
+class PodExecHandle:
+    def __init__(self, pod_instance: "PodInstance"):
+        self.pod_instance = pod_instance
+
+    def wait(self) -> int:
+        return self.pod_instance.wait()
+
+
 @dataclass
 class PodInstance(BaseAbstraction):
     """
-    Stores the result of creating a Pod.
+    A handle to a created pod. With this, you can interact with the container (send commands, terminate, get the status/URL etc).
 
     Attributes:
+        stub_id: The unique ID of the stub that was used to create the pod.
         container_id: The unique ID of the created container.
         url: The URL for accessing the container over HTTP (if ports were exposed).
     """
 
+    stub_id: str
     container_id: str
     url: str
     ok: bool = field(default=False)
     error_msg: str = field(default="")
     gateway_stub: "GatewayServiceStub" = field(init=False)
+    pod_stub: "PodServiceStub" = field(init=False)
+
+    _stdout: io.StringIO = field(init=False)
+    _stderr: io.StringIO = field(init=False)
+    _stdin: io.StringIO = field(init=False)
 
     def __post_init__(self):
         super().__init__()
+
         self.gateway_stub = GatewayServiceStub(self.channel)
+        self.pod_stub = PodServiceStub(self.channel)
+
+        self._stdout = io.StringIO()
+        self._stderr = io.StringIO()
+        self._stdin = io.StringIO()
 
     def terminate(self) -> bool:
         """
@@ -65,6 +90,38 @@ class PodInstance(BaseAbstraction):
             StopContainerRequest(container_id=self.container_id)
         )
         return res.ok
+
+    def exec(self, command: List[str]) -> None:
+        """
+        Executes a command in the pod container. Returns a class with the stdout, stderr, and stdin streams and a method to wait for the command to finish.
+        """
+        self._stdout = io.StringIO()
+        self._stderr = io.StringIO()
+        self._stdin = io.StringIO()
+
+        def _stream_output():
+            exec_response: "ExecInPodResponse" = self.pod_stub.exec_in_pod(
+                ExecInPodRequest(
+                    stub_id=self.stub_id, container_id=self.container_id, command=command
+                )
+            )
+
+            response: ExecInPodResponse
+            for response in exec_response:
+                self._stdout.write(response.output)
+                if response.done:
+                    break
+
+            self._stdout.seek(0)
+
+        exec_handle = threading.Thread(target=_stream_output, daemon=True)
+        exec_handle.start()
+        return exec_handle
+
+    @property
+    def stdout(self) -> Iterator[str]:
+        self._output.seek(0)
+        yield from (line.rstrip("\n") for line in self._output)
 
 
 class Pod(RunnerAbstraction):
@@ -121,7 +178,7 @@ class Pod(RunnerAbstraction):
 
     def __init__(
         self,
-        entrypoint: List[str] = [],
+        entrypoint: List[str] = ["tail", "-f", "/dev/null"],
         ports: Optional[List[int]] = [],
         name: Optional[str] = None,
         cpu: Union[int, float, str] = 1.0,
@@ -216,6 +273,7 @@ class Pod(RunnerAbstraction):
             url = url_res.url
 
         return PodInstance(
+            stub_id=self.stub_id,
             container_id=create_response.container_id,
             url=url,
             ok=create_response.ok,

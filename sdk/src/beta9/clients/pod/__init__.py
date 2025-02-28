@@ -6,7 +6,10 @@
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
+    AsyncIterator,
     Dict,
+    Iterator,
+    List,
     Optional,
 )
 
@@ -34,6 +37,22 @@ class CreatePodResponse(betterproto.Message):
     error_msg: str = betterproto.string_field(3)
 
 
+@dataclass(eq=False, repr=False)
+class ExecInPodRequest(betterproto.Message):
+    stub_id: str = betterproto.string_field(1)
+    container_id: str = betterproto.string_field(2)
+    command: List[str] = betterproto.string_field(3)
+
+
+@dataclass(eq=False, repr=False)
+class ExecInPodResponse(betterproto.Message):
+    output: str = betterproto.string_field(1)
+    error_msg: str = betterproto.string_field(2)
+    done: bool = betterproto.bool_field(3)
+    success: bool = betterproto.bool_field(4)
+    exit_code: int = betterproto.int32_field(5)
+
+
 class PodServiceStub(SyncServiceStub):
     def create_pod(self, create_pod_request: "CreatePodRequest") -> "CreatePodResponse":
         return self._unary_unary(
@@ -41,3 +60,13 @@ class PodServiceStub(SyncServiceStub):
             CreatePodRequest,
             CreatePodResponse,
         )(create_pod_request)
+
+    def exec_in_pod(
+        self, exec_in_pod_request: "ExecInPodRequest"
+    ) -> Iterator["ExecInPodResponse"]:
+        for response in self._unary_stream(
+            "/pod.PodService/ExecInPod",
+            ExecInPodRequest,
+            ExecInPodResponse,
+        )(exec_in_pod_request):
+            yield response
