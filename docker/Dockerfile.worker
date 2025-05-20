@@ -78,9 +78,10 @@ FROM golang AS worker
 WORKDIR /workspace
 
 COPY go.mod go.sum ./
+COPY profile.pprof ./
 RUN go mod download
 COPY --exclude=sdk . .
-RUN go build -o /usr/local/bin/worker ./cmd/worker/main.go
+RUN go build -pgo=profile.pprof -o /usr/local/bin/worker ./cmd/worker/main.go
 
 # uv
 # ========================

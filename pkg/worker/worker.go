@@ -20,6 +20,9 @@ import (
 	repo "github.com/beam-cloud/beta9/pkg/repository"
 	pb "github.com/beam-cloud/beta9/proto"
 
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/beam-cloud/beta9/pkg/storage"
 	types "github.com/beam-cloud/beta9/pkg/types"
 )
@@ -108,6 +111,15 @@ func NewWorker() (*Worker, error) {
 	workerToken := os.Getenv("WORKER_TOKEN")
 	workerPoolName := os.Getenv("WORKER_POOL_NAME")
 	podHostName := os.Getenv("HOSTNAME")
+
+	// Start pprof server
+	go func() {
+		addr := ":6060" // You can make this configurable if you want
+		log.Info().Msgf("starting pprof server at %s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Error().Err(err).Msg("pprof server failed")
+		}
+	}()
 
 	podAddr, err := GetPodAddr()
 	if err != nil {
