@@ -409,7 +409,7 @@ func (s *Worker) specFromRequest(request *types.ContainerRequest, options *Conta
 
 	var volumeCacheMap map[string]string = make(map[string]string)
 
-	// Add bind mounts to runc spec
+	// Add bind mounts to oci spec
 	for _, m := range request.Mounts {
 		// Skip mountpoint storage if the local path does not exist (mounting failed)
 		if m.MountType == storage.StorageModeMountPoint {
@@ -513,7 +513,7 @@ func (s *Worker) getContainerEnvironment(request *types.ContainerRequest, option
 	return env
 }
 
-// spawn a container using runc binary
+// spawn a container using container runtime
 func (s *Worker) spawn(request *types.ContainerRequest, spec *specs.Spec, outputLogger *slog.Logger, opts *ContainerOptions) {
 	ctx, cancel := context.WithCancel(s.ctx)
 
