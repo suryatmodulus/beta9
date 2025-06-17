@@ -198,11 +198,10 @@ func (ss *SSHShellService) checkForExistingSSHServer(ctx context.Context, contai
 	}
 }
 
-func (ss *SSHShellService) getOrCreateSSHUser(ctx context.Context, containerId string, client *common.RunCClient) (string, string, error) {
+func (ss *SSHShellService) getOrCreateSSHUser(ctx context.Context, containerId string, client *common.ContainerClient) (string, string, error) {
 	authInfo, _ := auth.AuthInfoFromContext(ctx)
 
 	username, password := ss.generateUsernamePassword(*authInfo.Token)
-
 	_, err := client.Exec(containerId, "id $USERNAME && exit 0 ;"+createUserScript, []string{fmt.Sprintf("USERNAME=%s", username), fmt.Sprintf("PASSWORD=%s", password)})
 	if err != nil {
 		return "", "", err
@@ -261,11 +260,11 @@ func (ss *SSHShellService) CreateShellInExistingContainer(ctx context.Context, i
 		}, nil
 	}
 
-	runcClient, err := common.NewRunCClient(containerAddr, authInfo.Token.Key, conn)
+	containerClient, err := common.NewContainerClient(containerAddr, authInfo.Token.Key, conn)
 	if err != nil {
 		return &pb.CreateShellInExistingContainerResponse{
 			Ok:     false,
-			ErrMsg: fmt.Sprintf("Failed to create runc client: %s", err),
+			ErrMsg: fmt.Sprintf("Failed to create container client: %s", err),
 		}, nil
 	}
 
@@ -273,7 +272,7 @@ func (ss *SSHShellService) CreateShellInExistingContainer(ctx context.Context, i
 	if !ok {
 		go func() {
 			// This only dies if the container is stopped
-			_, err = runcClient.Exec(containerId, startupScript, []string{
+			_, err = containerClient.Exec(containerId, startupScript, []string{
 				fmt.Sprintf("SHELL_PORT=%d", types.WorkerShellPort),
 			})
 			if err != nil {
@@ -282,7 +281,7 @@ func (ss *SSHShellService) CreateShellInExistingContainer(ctx context.Context, i
 		}()
 	}
 
-	username, password, err := ss.getOrCreateSSHUser(ctx, containerId, runcClient)
+	username, password, err := ss.getOrCreateSSHUser(ctx, containerId, containerClient)
 	if err != nil {
 		return &pb.CreateShellInExistingContainerResponse{
 			Ok:     false,

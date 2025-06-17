@@ -327,10 +327,10 @@ func (s *GenericPodService) SandboxListFiles(ctx context.Context, in *pb.PodSand
 	}, nil
 }
 
-func (s *GenericPodService) getClient(ctx context.Context, containerId, token string) (*common.RunCClient, error) {
+func (s *GenericPodService) getClient(ctx context.Context, containerId, token string) (*common.ContainerClient, error) {
 	cacheKey := containerId + ":" + token
 	if cached, ok := s.clientCache.Load(cacheKey); ok {
-		if client, ok := cached.(*common.RunCClient); ok {
+		if client, ok := cached.(*common.ContainerClient); ok {
 			return client, nil
 		}
 	}
@@ -345,7 +345,7 @@ func (s *GenericPodService) getClient(ctx context.Context, containerId, token st
 		return nil, err
 	}
 
-	client, err := common.NewRunCClient(hostname, token, conn)
+	client, err := common.NewContainerClient(hostname, token, conn)
 	if err != nil {
 		return nil, err
 	}

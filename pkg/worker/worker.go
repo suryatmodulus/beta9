@@ -44,7 +44,7 @@ type Worker struct {
 	podHostName             string
 	imageMountPath          string
 	runcHandle              runc.Runc
-	runcServer              *RunCServer
+	containerServer         *ContainerServer
 	fileCacheManager        *FileCacheManager
 	criuManager             CRIUManager
 	containerNetworkManager *ContainerNetworkManager
@@ -197,13 +197,13 @@ func NewWorker() (*Worker, error) {
 		return nil, err
 	}
 
-	runcServer, err := NewRunCServer(podAddr, containerInstances, imageClient, containerRepoClient, containerNetworkManager)
+	containerServer, err := NewContainerServer(podAddr, containerInstances, imageClient, containerRepoClient, containerNetworkManager)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 
-	err = runcServer.Start()
+	err = containerServer.Start()
 	if err != nil {
 		cancel()
 		return nil, err
@@ -228,7 +228,6 @@ func NewWorker() (*Worker, error) {
 		gpuType:                 gpuType,
 		gpuCount:                uint32(gpuCount),
 		runcHandle:              runc.Runc{Debug: config.DebugMode},
-		runcServer:              runcServer,
 		storageManager:          storageManager,
 		fileCacheManager:        fileCacheManager,
 		containerGPUManager:     NewContainerNvidiaManager(uint32(gpuCount)),
@@ -240,6 +239,7 @@ func NewWorker() (*Worker, error) {
 		criuManager:             criuManager,
 		podHostName:             podHostName,
 		eventBus:                nil,
+		containerServer:         containerServer,
 		containerInstances:      containerInstances,
 		containerLock:           sync.Mutex{},
 		containerWg:             sync.WaitGroup{},

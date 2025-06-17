@@ -15,7 +15,7 @@ import (
 
 type FunctionTask struct {
 	msg         *types.TaskMessage
-	fs          *RunCFunctionService
+	fs          *RemoteFunctionService
 	containerId string
 }
 

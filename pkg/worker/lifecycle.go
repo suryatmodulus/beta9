@@ -179,7 +179,7 @@ func (s *Worker) RunContainer(ctx context.Context, request *types.ContainerReque
 	bundlePath := filepath.Join(s.imageMountPath, request.ImageId)
 
 	// Set worker hostname
-	hostname := fmt.Sprintf("%s:%d", s.podAddr, s.runcServer.port)
+	hostname := fmt.Sprintf("%s:%d", s.podAddr, s.containerServer.port)
 	_, err := handleGRPCResponse(s.containerRepoClient.SetWorkerAddress(context.Background(), &pb.SetWorkerAddressRequest{
 		ContainerId: containerId,
 		Address:     hostname,
@@ -254,7 +254,7 @@ func (s *Worker) RunContainer(ctx context.Context, request *types.ContainerReque
 		s.containerLogger.Log(request.ContainerId, request.StubId, "failed to setup container mounts: %v", err)
 	}
 
-	// Generate dynamic runc spec for this container
+	// Generate dynamic oci spec for this container
 	spec, err := s.specFromRequest(request, opts)
 	if err != nil {
 		return err
@@ -343,7 +343,7 @@ func (s *Worker) readBundleConfig(imageId string, isBuildRequest bool) (*specs.S
 	return &spec, nil
 }
 
-// Generate a runc spec from a given request
+// Generate a oci spec from a given request
 func (s *Worker) specFromRequest(request *types.ContainerRequest, options *ContainerOptions) (*specs.Spec, error) {
 	os.MkdirAll(filepath.Join(baseConfigPath, request.ContainerId), os.ModePerm)
 
@@ -648,7 +648,7 @@ func (s *Worker) spawn(request *types.ContainerRequest, spec *specs.Spec, output
 		}
 	}
 
-	// Write runc config spec to disk
+	// Write oci config spec to disk
 	configContents, err := json.MarshalIndent(spec, "", " ")
 	if err != nil {
 		return
@@ -657,7 +657,7 @@ func (s *Worker) spawn(request *types.ContainerRequest, spec *specs.Spec, output
 	configPath := filepath.Join(spec.Root.Path, specBaseName)
 	err = os.WriteFile(configPath, configContents, 0644)
 	if err != nil {
-		log.Error().Str("container_id", containerId).Msgf("failed to write runc config: %v", err)
+		log.Error().Str("container_id", containerId).Msgf("failed to write oci spec: %v", err)
 		return
 	}
 

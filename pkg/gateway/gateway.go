@@ -300,7 +300,7 @@ func (g *Gateway) registerServices() error {
 	pb.RegisterImageServiceServer(g.grpcServer, is)
 
 	// Register function service
-	fs, err := function.NewRuncFunctionService(g.ctx, function.FunctionServiceOpts{
+	fs, err := function.NewRemoteFunctionService(g.ctx, function.FunctionServiceOpts{
 		Config:           g.Config,
 		RedisClient:      g.RedisClient,
 		BackendRepo:      g.BackendRepo,

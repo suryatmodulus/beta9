@@ -208,7 +208,7 @@ func (m *ContainerNetworkManager) Setup(containerId string, spec *specs.Spec) er
 		return err
 	}
 
-	// Update the runc spec to use the new network namespace
+	// Update the oci spec to use the new network namespace
 	spec.Linux.Namespaces = append(spec.Linux.Namespaces, specs.LinuxNamespace{
 		Type: specs.NetworkNamespace,
 		Path: filepath.Join("/var/run/netns", namespace),
