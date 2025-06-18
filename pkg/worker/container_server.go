@@ -31,8 +31,8 @@ import (
 )
 
 type ContainerServer struct {
-	runcHandle     runc.Runc
-	baseConfigSpec specs.Spec
+	containerRuntime ContainerRuntime
+	baseConfigSpec   specs.Spec
 	pb.UnimplementedContainerServiceServer
 	containerInstances      *common.SafeMap[*ContainerInstance]
 	containerRepoClient     pb.ContainerRepositoryServiceClient
@@ -42,7 +42,7 @@ type ContainerServer struct {
 	podAddr                 string
 }
 
-func NewContainerServer(podAddr string, containerInstances *common.SafeMap[*ContainerInstance], imageClient *ImageClient, containerRepoClient pb.ContainerRepositoryServiceClient, containerNetworkManager *ContainerNetworkManager) (*ContainerServer, error) {
+func NewContainerServer(containerRuntime ContainerRuntime, podAddr string, containerInstances *common.SafeMap[*ContainerInstance], imageClient *ImageClient, containerRepoClient pb.ContainerRepositoryServiceClient, containerNetworkManager *ContainerNetworkManager) (*ContainerServer, error) {
 	var baseConfigSpec specs.Spec
 	specTemplate := strings.TrimSpace(string(baseRuncConfigRaw))
 	err := json.Unmarshal([]byte(specTemplate), &baseConfigSpec)
@@ -52,7 +52,7 @@ func NewContainerServer(podAddr string, containerInstances *common.SafeMap[*Cont
 
 	return &ContainerServer{
 		podAddr:                 podAddr,
-		runcHandle:              runc.Runc{},
+		containerRuntime:        containerRuntime,
 		baseConfigSpec:          baseConfigSpec,
 		containerInstances:      containerInstances,
 		imageClient:             imageClient,
@@ -86,11 +86,11 @@ func (s *ContainerServer) Start() error {
 }
 
 func (s *ContainerServer) ContainerKill(ctx context.Context, in *pb.ContainerKillRequest) (*pb.ContainerKillResponse, error) {
-	_ = s.runcHandle.Kill(ctx, in.ContainerId, int(syscall.SIGTERM), &runc.KillOpts{
+	_ = s.containerRuntime.Kill(ctx, in.ContainerId, int(syscall.SIGTERM), &ContainerKillOpts{
 		All: true,
 	})
 
-	err := s.runcHandle.Delete(ctx, in.ContainerId, &runc.DeleteOpts{
+	err := s.containerRuntime.Delete(ctx, in.ContainerId, &ContainerDeleteOpts{
 		Force: true,
 	})
 
@@ -133,7 +133,7 @@ func (s *ContainerServer) ContainerExec(ctx context.Context, in *pb.ContainerExe
 		process.Env = append(process.Env, instance.Request.BuildOptions.BuildSecrets...)
 	}
 
-	err = s.runcHandle.Exec(ctx, in.ContainerId, *process, &runc.ExecOpts{
+	err = s.containerRuntime.Exec(ctx, in.ContainerId, *process, &ContainerExecOpts{
 		OutputWriter: instance.OutputWriter,
 	})
 
@@ -143,7 +143,7 @@ func (s *ContainerServer) ContainerExec(ctx context.Context, in *pb.ContainerExe
 }
 
 func (s *ContainerServer) ContainerStatus(ctx context.Context, in *pb.ContainerStatusRequest) (*pb.ContainerStatusResponse, error) {
-	state, err := s.runcHandle.State(ctx, in.ContainerId)
+	state, err := s.containerRuntime.State(ctx, in.ContainerId)
 	if err != nil {
 		return &pb.ContainerStatusResponse{
 			Running: false,
@@ -197,7 +197,7 @@ func (s *ContainerServer) ContainerStreamLogs(req *pb.ContainerStreamLogsRequest
 
 func (s *ContainerServer) ContainerArchive(req *pb.ContainerArchiveRequest, stream pb.ContainerService_ContainerArchiveServer) error {
 	ctx := stream.Context()
-	state, err := s.runcHandle.State(ctx, req.ContainerId)
+	state, err := s.containerRuntime.State(ctx, req.ContainerId)
 	if err != nil {
 		return stream.Send(&pb.ContainerArchiveResponse{Done: true, Success: false, ErrorMsg: "Container not found"})
 	}
@@ -361,7 +361,7 @@ func (s *ContainerServer) waitForContainer(ctx context.Context, containerId stri
 			continue
 		}
 
-		state, err := s.runcHandle.State(ctx, containerId)
+		state, err := s.containerRuntime.State(ctx, containerId)
 		if err != nil {
 			time.Sleep(100 * time.Millisecond)
 			continue
@@ -416,10 +416,6 @@ func (s *ContainerServer) handleSandboxExec(ctx context.Context, in *pb.Containe
 	started := make(chan int, 1)
 
 	processIO := NewSandboxProcessIO()
-	opts := &runc.ExecOpts{
-		IO:      processIO,
-		Started: started,
-	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	go func() {
@@ -435,7 +431,10 @@ func (s *ContainerServer) handleSandboxExec(ctx context.Context, in *pb.Containe
 	}
 
 	go func() {
-		err := s.runcHandle.Exec(context.Background(), in.ContainerId, *process, opts)
+		err := s.containerRuntime.Exec(context.Background(), in.ContainerId, *process, &ContainerExecOpts{
+			IO:      processIO,
+			Started: started,
+		})
 		if err != nil {
 			if exitErr, ok := err.(*runc.ExitError); ok {
 				processIO.done <- exitErr.Status

@@ -19,7 +19,6 @@ import (
 	pb "github.com/beam-cloud/beta9/proto"
 	"tags.cncf.io/container-device-interface/pkg/cdi"
 
-	runc "github.com/beam-cloud/go-runc"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/rs/zerolog/log"
 )
@@ -79,7 +78,7 @@ func (s *Worker) stopContainer(containerId string, kill bool) error {
 		signal = int(syscall.SIGKILL)
 	}
 
-	err := s.runcHandle.Kill(context.Background(), instance.Id, signal, &runc.KillOpts{All: true})
+	err := s.containerRuntime.Kill(context.Background(), instance.Id, signal, &ContainerKillOpts{All: true})
 	if err != nil {
 		log.Error().Str("container_id", containerId).Msgf("error stopping container: %v", err)
 		s.containerNetworkManager.TearDown(containerId)
@@ -143,7 +142,7 @@ func (s *Worker) clearContainer(containerId string, request *types.ContainerRequ
 		}
 
 		// If the container is still running, stop it. This happens when a sigterm is detected.
-		container, err := s.runcHandle.State(context.TODO(), containerId)
+		container, err := s.containerRuntime.State(context.TODO(), containerId)
 		if err == nil && container.Status == types.RuncContainerStatusRunning {
 			if err := s.stopContainer(containerId, true); err != nil {
 				log.Error().Str("container_id", containerId).Msgf("failed to stop container: %v", err)
@@ -726,7 +725,7 @@ func (s *Worker) spawn(request *types.ContainerRequest, spec *specs.Spec, output
 	log.Info().Str("container_id", containerId).Msgf("container has exited with code: %d, stop reason: %s", exitCode, stopReason)
 	outputLogger.Info("", "done", true, "success", exitCode == 0)
 	if containerId != "" {
-		err = s.runcHandle.Delete(s.ctx, containerId, &runc.DeleteOpts{Force: true})
+		err = s.containerRuntime.Delete(s.ctx, containerId, &ContainerDeleteOpts{Force: true})
 		if err != nil {
 			log.Error().Str("container_id", containerId).Msgf("failed to delete container: %v", err)
 		}
@@ -744,7 +743,7 @@ func (s *Worker) runContainer(ctx context.Context, request *types.ContainerReque
 	}
 
 	bundlePath := filepath.Dir(configPath)
-	exitCode, err := s.runcHandle.Run(ctx, request.ContainerId, bundlePath, &runc.CreateOpts{
+	exitCode, err := s.containerRuntime.Run(ctx, request.ContainerId, bundlePath, &ContainerCreateOpts{
 		OutputWriter: outputWriter,
 		Started:      startedChan,
 	})
@@ -773,7 +772,7 @@ func (s *Worker) createOverlay(request *types.ContainerRequest, bundlePath strin
 func (s *Worker) watchOOMEvents(ctx context.Context, request *types.ContainerRequest, outputLogger *slog.Logger, isOOMKilled *atomic.Bool) {
 	var (
 		seenEvents  = make(map[string]struct{})
-		ch          <-chan *runc.Event
+		ch          <-chan *ContainerEvent
 		err         error
 		ticker      = time.NewTicker(time.Second)
 		containerId = request.ContainerId
@@ -785,7 +784,7 @@ func (s *Worker) watchOOMEvents(ctx context.Context, request *types.ContainerReq
 	case <-ctx.Done():
 		return
 	default:
-		ch, err = s.runcHandle.Events(ctx, containerId, time.Second)
+		ch, err = s.containerRuntime.Events(ctx, containerId, time.Second)
 		if err != nil {
 			log.Error().Str("container_id", containerId).Msgf("failed to open runc events channel: %v", err)
 			return
@@ -819,7 +818,7 @@ func (s *Worker) watchOOMEvents(ctx context.Context, request *types.ContainerReq
 				case <-ctx.Done():
 					return
 				case <-time.After(backoff):
-					ch, err = s.runcHandle.Events(ctx, containerId, time.Second)
+					ch, err = s.containerRuntime.Events(ctx, containerId, time.Second)
 					if err != nil {
 						log.Error().Str("container_id", containerId).Msgf("failed to open runc events channel: %v", err)
 					}

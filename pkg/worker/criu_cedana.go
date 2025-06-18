@@ -15,7 +15,6 @@ import (
 	"buf.build/gen/go/cedana/criu/protocolbuffers/go/criu"
 	common "github.com/beam-cloud/beta9/pkg/common"
 	types "github.com/beam-cloud/beta9/pkg/types"
-	"github.com/beam-cloud/go-runc"
 	cedana "github.com/cedana/cedana/pkg/client"
 	"github.com/cedana/cedana/pkg/config"
 	"github.com/rs/zerolog"
@@ -103,7 +102,7 @@ func (c *CedanaCRIUManager) Available() bool {
 }
 
 // Spawn a runc container using cedana, creating a 'job' in cedana
-func (c *CedanaCRIUManager) Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *runc.CreateOpts) (int, error) {
+func (c *CedanaCRIUManager) Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *ContainerCreateOpts) (int, error) {
 	// If config path provided directly, derive bundle from it
 	args := &cedanadaemon.RunReq{
 		Action:     cedanadaemon.RunAction_START_NEW,

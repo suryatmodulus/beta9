@@ -44,6 +44,7 @@ type Worker struct {
 	podHostName             string
 	imageMountPath          string
 	runcHandle              runc.Runc
+	containerRuntime        ContainerRuntime
 	containerServer         *ContainerServer
 	fileCacheManager        *FileCacheManager
 	criuManager             CRIUManager
@@ -182,22 +183,14 @@ func NewWorker() (*Worker, error) {
 		return nil, err
 	}
 
-	var criuManager CRIUManager = nil
-	var checkpointStorage storage.Storage = nil
-	if pool, ok := config.Worker.Pools[workerPoolName]; ok && pool.CRIUEnabled {
-		criuManager, err = InitializeCRIUManager(context.Background(), config.Worker.CRIU, fileCacheManager)
-		if err != nil {
-			log.Warn().Str("worker_id", workerId).Msgf("C/R unavailable, failed to create CRIU manager: %v", err)
-		}
-	}
-
 	containerNetworkManager, err := NewContainerNetworkManager(ctx, workerId, workerRepoClient, containerRepoClient, config)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 
-	containerServer, err := NewContainerServer(podAddr, containerInstances, imageClient, containerRepoClient, containerNetworkManager)
+	containerRuntime := NewContainerRuntime(runc.Runc{Debug: config.DebugMode})
+	containerServer, err := NewContainerServer(containerRuntime, podAddr, containerInstances, imageClient, containerRepoClient, containerNetworkManager)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -208,6 +201,18 @@ func NewWorker() (*Worker, error) {
 		cancel()
 		return nil, err
 	}
+
+	var criuManager CRIUManager = nil
+	var checkpointStorage storage.Storage = nil
+	if pool, ok := config.Worker.Pools[workerPoolName]; ok && pool.CRIUEnabled {
+		criuManager, err = InitializeCRIUManager(context.Background(), containerRuntime, config.Worker.CRIU, fileCacheManager)
+		if err != nil {
+			log.Warn().Str("worker_id", workerId).Msgf("C/R unavailable, failed to create CRIU manager: %v", err)
+		}
+	}
+
+	containerGPUManager := NewContainerNvidiaManager(uint32(gpuCount))
+	containerMountManager := NewContainerMountManager(config)
 
 	workerMetrics, err := NewWorkerUsageMetrics(ctx, workerId, config.Monitoring, gpuType)
 	if err != nil {
@@ -230,9 +235,9 @@ func NewWorker() (*Worker, error) {
 		runcHandle:              runc.Runc{Debug: config.DebugMode},
 		storageManager:          storageManager,
 		fileCacheManager:        fileCacheManager,
-		containerGPUManager:     NewContainerNvidiaManager(uint32(gpuCount)),
+		containerGPUManager:     containerGPUManager,
 		containerNetworkManager: containerNetworkManager,
-		containerMountManager:   NewContainerMountManager(config),
+		containerMountManager:   containerMountManager,
 		redisClient:             redisClient,
 		podAddr:                 podAddr,
 		imageClient:             imageClient,
@@ -255,6 +260,7 @@ func NewWorker() (*Worker, error) {
 		stopContainerChan:   make(chan stopContainerEvent, 1000),
 		userDataStorage:     userDataStorage,
 		checkpointStorage:   checkpointStorage,
+		containerRuntime:    containerRuntime,
 	}, nil
 }
 
@@ -306,7 +312,7 @@ containerRequestStream:
 	return s.shutdown()
 }
 
-// handleContainerRequest handles an individual container request, spawning a new runc container
+// handleContainerRequest handles an individual container request, spawning a new container
 func (s *Worker) handleContainerRequest(request *types.ContainerRequest) {
 	containerId := request.ContainerId
 

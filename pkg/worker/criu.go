@@ -13,7 +13,6 @@ import (
 	storage "github.com/beam-cloud/beta9/pkg/storage"
 	types "github.com/beam-cloud/beta9/pkg/types"
 	pb "github.com/beam-cloud/beta9/proto"
-	"github.com/beam-cloud/go-runc"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -27,13 +26,13 @@ const (
 type RestoreOpts struct {
 	request    *types.ContainerRequest
 	state      types.CheckpointState
-	runcOpts   *runc.CreateOpts
+	runcOpts   *ContainerCreateOpts
 	configPath string
 }
 
 type CRIUManager interface {
 	Available() bool
-	Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *runc.CreateOpts) (int, error)
+	Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *ContainerCreateOpts) (int, error)
 	CreateCheckpoint(ctx context.Context, request *types.ContainerRequest) (string, error)
 	RestoreCheckpoint(ctx context.Context, opts *RestoreOpts) (int, error)
 	CacheCheckpoint(containerId, checkpointPath string) (string, error)
@@ -41,7 +40,7 @@ type CRIUManager interface {
 
 // InitializeCRIUManager initializes a new CRIU manager that can be used to checkpoint and restore containers
 // -- depending on the mode, it will use either cedana or nvidia cuda checkpoint under the hood
-func InitializeCRIUManager(ctx context.Context, config types.CRIUConfig, fileCacheManager *FileCacheManager) (CRIUManager, error) {
+func InitializeCRIUManager(ctx context.Context, containerRuntime ContainerRuntime, config types.CRIUConfig, fileCacheManager *FileCacheManager) (CRIUManager, error) {
 	var criuManager CRIUManager = nil
 	var err error = nil
 
@@ -49,7 +48,7 @@ func InitializeCRIUManager(ctx context.Context, config types.CRIUConfig, fileCac
 	case types.CRIUConfigModeCedana:
 		criuManager, err = InitializeCedanaCRIU(ctx, config.Cedana, fileCacheManager)
 	case types.CRIUConfigModeNvidia:
-		criuManager, err = InitializeNvidiaCRIU(ctx, config, fileCacheManager)
+		criuManager, err = InitializeNvidiaCRIU(ctx, containerRuntime, config, fileCacheManager)
 	default:
 		return nil, fmt.Errorf("invalid CRIU mode: %s", config.Mode)
 	}
@@ -108,7 +107,7 @@ func (s *Worker) attemptCheckpointOrRestore(ctx context.Context, request *types.
 		exitCode, err := s.criuManager.RestoreCheckpoint(ctx, &RestoreOpts{
 			request: request,
 			state:   state,
-			runcOpts: &runc.CreateOpts{
+			runcOpts: &ContainerCreateOpts{
 				OutputWriter: outputWriter,
 				Started:      startedChan,
 			},
@@ -129,7 +128,7 @@ func (s *Worker) attemptCheckpointOrRestore(ctx context.Context, request *types.
 	// If a checkpoint exists but is not available (previously failed), run the container normally
 	bundlePath := filepath.Dir(configPath)
 
-	exitCode, err := s.runcHandle.Run(s.ctx, request.ContainerId, bundlePath, &runc.CreateOpts{
+	exitCode, err := s.containerRuntime.Run(s.ctx, request.ContainerId, bundlePath, &ContainerCreateOpts{
 		OutputWriter: outputWriter,
 		Started:      startedChan,
 	})
@@ -211,7 +210,7 @@ func (s *Worker) createCheckpoint(ctx context.Context, request *types.ContainerR
 		}
 	}()
 
-	exitCode, err := s.criuManager.Run(ctx, request, bundlePath, &runc.CreateOpts{
+	exitCode, err := s.criuManager.Run(ctx, request, bundlePath, &ContainerCreateOpts{
 		OutputWriter: outputWriter,
 		Started:      startedChan,
 	})

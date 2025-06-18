@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	types "github.com/beam-cloud/beta9/pkg/types"
-	"github.com/beam-cloud/go-runc"
 	"github.com/hashicorp/go-multierror"
 	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog/log"
@@ -24,14 +23,14 @@ const (
 )
 
 type NvidiaCRIUManager struct {
-	runcHandle       runc.Runc
+	containerRuntime ContainerRuntime
 	cpStorageConfig  types.CheckpointStorageConfig
 	fileCacheManager *FileCacheManager
 	gpuCnt           int
 	available        bool
 }
 
-func InitializeNvidiaCRIU(ctx context.Context, config types.CRIUConfig, fileCacheManager *FileCacheManager) (CRIUManager, error) {
+func InitializeNvidiaCRIU(ctx context.Context, containerRuntime ContainerRuntime, config types.CRIUConfig, fileCacheManager *FileCacheManager) (CRIUManager, error) {
 	gpuCnt := 0
 	var err error
 	gpuCntEnv := os.Getenv(gpuCntEnvKey)
@@ -44,13 +43,12 @@ func InitializeNvidiaCRIU(ctx context.Context, config types.CRIUConfig, fileCach
 
 	available := crCompatible(gpuCnt)
 
-	runcHandle := runc.Runc{}
-	return &NvidiaCRIUManager{runcHandle: runcHandle, cpStorageConfig: config.Storage, fileCacheManager: fileCacheManager, gpuCnt: gpuCnt, available: available}, nil
+	return &NvidiaCRIUManager{containerRuntime: containerRuntime, cpStorageConfig: config.Storage, fileCacheManager: fileCacheManager, gpuCnt: gpuCnt, available: available}, nil
 }
 
 func (c *NvidiaCRIUManager) CreateCheckpoint(ctx context.Context, request *types.ContainerRequest) (string, error) {
 	checkpointPath := fmt.Sprintf("%s/%s", c.cpStorageConfig.MountPath, request.StubId)
-	err := c.runcHandle.Checkpoint(ctx, request.ContainerId, &runc.CheckpointOpts{
+	err := c.containerRuntime.Checkpoint(ctx, request.ContainerId, &ContainerCheckpointOpts{
 		LeaveRunning: true,
 		SkipInFlight: true,
 		AllowOpenTCP: true,
@@ -83,8 +81,8 @@ func (c *NvidiaCRIUManager) RestoreCheckpoint(ctx context.Context, opts *Restore
 		}
 	}
 
-	exitCode, err := c.runcHandle.Restore(ctx, opts.request.ContainerId, bundlePath, &runc.RestoreOpts{
-		CheckpointOpts: runc.CheckpointOpts{
+	exitCode, err := c.containerRuntime.Restore(ctx, opts.request.ContainerId, bundlePath, &ContainerRestoreOpts{
+		CheckpointOpts: ContainerCheckpointOpts{
 			AllowOpenTCP: true,
 			// Logs, irmap cache, sockets for lazy server and other go to working dir
 			// must be overriden bc blobcache is read-only
@@ -105,8 +103,8 @@ func (c *NvidiaCRIUManager) Available() bool {
 	return c.available
 }
 
-func (c *NvidiaCRIUManager) Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *runc.CreateOpts) (int, error) {
-	exitCode, err := c.runcHandle.Run(ctx, request.ContainerId, bundlePath, runcOpts)
+func (c *NvidiaCRIUManager) Run(ctx context.Context, request *types.ContainerRequest, bundlePath string, runcOpts *ContainerCreateOpts) (int, error) {
+	exitCode, err := c.containerRuntime.Run(ctx, request.ContainerId, bundlePath, runcOpts)
 	if err != nil {
 		return -1, err
 	}
